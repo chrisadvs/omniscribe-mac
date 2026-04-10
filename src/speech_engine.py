@@ -8,9 +8,10 @@ class SpeechEngineFactory:
     def __init__(self, config):
         self.engine_type = config.get("active_engine", "gemini")
         self.gemini_api_key = config.get("gemini_api_key", "")
+        self.gemini_model = config.get("gemini_model", "")
         self.openai_api_key = config.get("openai_api_key", "")
-        self.ollama_host = config.get("ollama_host", "http://mac-mini.local:11434")
-        self.ollama_model = config.get("ollama_model", "gemma4:e4b")
+        self.whisper_prompt = config.get("whisper_prompt", "")
+        self.whisper_local_host = config.get("whisper_local_host", "")
         self.prompt = (
             "You are a transcription engine. Transcribe the audio exactly as spoken. "
             "Output in Simplified Chinese (简体中文) if the speaker uses Chinese. "
@@ -23,8 +24,8 @@ class SpeechEngineFactory:
             return self._run_gemini(path)
         elif self.engine_type == "whisper":
             return self._run_whisper(path)
-        elif self.engine_type == "ollama":
-            return self._run_ollama(path)
+        elif self.engine_type == "whisper_local":
+            return self._run_whisper_local(path)
         logger.error(f"Unknown engine type: {self.engine_type}")
         return ""
 
@@ -32,9 +33,12 @@ class SpeechEngineFactory:
         if not self.gemini_api_key:
             logger.error("Gemini API key is missing.")
             return ""
+        if not self.gemini_model:
+            logger.error("Gemini model name is missing. Please set it in Settings.")
+            return ""
         try:
             genai.configure(api_key=self.gemini_api_key)
-            model = genai.GenerativeModel('gemini-3-flash-preview')
+            model = genai.GenerativeModel(self.gemini_model)
 
             sample_file = genai.upload_file(path=path)
             logger.info(f"File uploaded to Gemini: {sample_file.name}")
@@ -68,7 +72,7 @@ class SpeechEngineFactory:
                 transcription = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
-                    prompt="SRE, Kubernetes, Splunk, Azure, API."
+                    prompt=self.whisper_prompt
                 )
             result = transcription.text.strip()
             logger.info(f"Transcription result: {result}")
@@ -77,26 +81,23 @@ class SpeechEngineFactory:
             logger.error(f"Whisper API error: {e}")
             return ""
 
-    def _run_ollama(self, path):
-        # Ollama does not support audio natively.
-        # We use whisper.cpp or a local transcription step first,
-        # then send the text to Ollama for cleanup/formatting.
-        # For now, we use Ollama's OpenAI-compatible API to transcribe
-        # via its /api/transcribe endpoint if available, otherwise log unsupported.
+    def _run_whisper_local(self, path):
+        if not self.whisper_local_host:
+            logger.error("Whisper Local host is missing. Please set it in Settings.")
+            return ""
         try:
-            url = f"{self.ollama_host}/api/transcribe"
+            url = f"{self.whisper_local_host}/transcribe"
             with open(path, "rb") as f:
                 files = {"file": ("audio.wav", f, "audio/wav")}
-                data = {"model": self.ollama_model}
-                response = requests.post(url, files=files, data=data, timeout=60)
+                response = requests.post(url, files=files, timeout=60)
 
             if response.status_code == 200:
                 result = response.json().get("text", "").strip()
                 logger.info(f"Transcription result: {result}")
                 return result
             else:
-                logger.error(f"Ollama transcription failed: {response.status_code} {response.text}")
+                logger.error(f"Whisper Local error: {response.status_code} {response.text}")
                 return ""
         except Exception as e:
-            logger.error(f"Ollama error: {e}")
+            logger.error(f"Whisper Local error: {e}")
             return ""

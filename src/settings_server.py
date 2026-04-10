@@ -101,6 +101,12 @@ SETTINGS_HTML = """
     margin-top: 14px;
   }
 
+  .field-hint {
+    font-size: 11px;
+    color: #6e6e73;
+    margin-top: 4px;
+  }
+
   input[type="text"], input[type="password"] {
     width: 100%;
     padding: 10px 14px;
@@ -207,9 +213,9 @@ SETTINGS_HTML = """
          onclick="selectEngine('whisper', this)">
       <span class="icon">🎙</span>Whisper
     </div>
-    <div class="engine-btn {% if config.active_engine == 'ollama' %}active{% endif %}"
-         onclick="selectEngine('ollama', this)">
-      <span class="icon">🦙</span>Ollama
+    <div class="engine-btn {% if config.active_engine == 'whisper_local' %}active{% endif %}"
+         onclick="selectEngine('whisper_local', this)">
+      <span class="icon">🖥</span>Local
     </div>
   </div>
 
@@ -218,21 +224,25 @@ SETTINGS_HTML = """
     <label>Gemini API Key</label>
     <input type="password" id="gemini_api_key" value="{{ config.gemini_api_key }}" placeholder="AIza...">
     <span class="show-key" onclick="toggleVisibility('gemini_api_key', this)">Show</span>
+    <label>Gemini Model</label>
+    <input type="text" id="gemini_model" value="{{ config.gemini_model }}" placeholder="e.g. gemini-2.0-flash-lite">
+    <div class="field-hint">Find your model name in Google AI Studio → Get Code</div>
   </div>
 
-  <!-- Whisper Fields -->
+  <!-- Whisper (API) Fields -->
   <div class="field-group {% if config.active_engine == 'whisper' %}visible{% endif %}" id="fields-whisper">
     <label>OpenAI API Key</label>
     <input type="password" id="openai_api_key" value="{{ config.openai_api_key }}" placeholder="sk-...">
     <span class="show-key" onclick="toggleVisibility('openai_api_key', this)">Show</span>
+    <label>Custom Prompt <span style="font-weight:400;color:#6e6e73">(optional — e.g. domain-specific words)</span></label>
+    <input type="text" id="whisper_prompt" value="{{ config.whisper_prompt }}" placeholder="e.g. Kubernetes, Splunk, Azure">
   </div>
 
-  <!-- Ollama Fields -->
-  <div class="field-group {% if config.active_engine == 'ollama' %}visible{% endif %}" id="fields-ollama">
-    <label>Ollama Host</label>
-    <input type="text" id="ollama_host" value="{{ config.ollama_host }}" placeholder="http://mac-mini.local:11434">
-    <label>Model Name</label>
-    <input type="text" id="ollama_model" value="{{ config.ollama_model }}" placeholder="gemma4:e4b">
+  <!-- Whisper Local Fields -->
+  <div class="field-group {% if config.active_engine == 'whisper_local' %}visible{% endif %}" id="fields-whisper_local">
+    <label>Whisper Server URL</label>
+    <input type="text" id="whisper_local_host" value="{{ config.whisper_local_host }}" placeholder="http://192.168.1.x:11500">
+    <div class="field-hint">Format: http://[IP address]:[port] — e.g. http://192.168.1.250:11500</div>
   </div>
 
   <div class="divider"></div>
@@ -293,9 +303,10 @@ SETTINGS_HTML = """
       active_engine: currentEngine,
       output_mode: currentOutput,
       gemini_api_key: document.getElementById('gemini_api_key').value,
+      gemini_model: document.getElementById('gemini_model').value,
       openai_api_key: document.getElementById('openai_api_key').value,
-      ollama_host: document.getElementById('ollama_host').value,
-      ollama_model: document.getElementById('ollama_model').value,
+      whisper_prompt: document.getElementById('whisper_prompt').value,
+      whisper_local_host: document.getElementById('whisper_local_host').value,
     };
 
     fetch('/save', {
@@ -336,11 +347,11 @@ class SettingsServer:
         @self.app.route("/")
         def index():
             conf = config_mgr.load_config()
-            # Provide safe defaults for template rendering
             conf.setdefault("gemini_api_key", "")
+            conf.setdefault("gemini_model", "")
             conf.setdefault("openai_api_key", "")
-            conf.setdefault("ollama_host", "http://mac-mini.local:11434")
-            conf.setdefault("ollama_model", "gemma4:e4b")
+            conf.setdefault("whisper_prompt", "")
+            conf.setdefault("whisper_local_host", "")
             conf.setdefault("output_mode", "clipboard")
             conf.setdefault("active_engine", "gemini")
             return render_template_string(SETTINGS_HTML, config=conf)
@@ -354,9 +365,10 @@ class SettingsServer:
                     "active_engine": data.get("active_engine", conf.get("active_engine")),
                     "output_mode": data.get("output_mode", conf.get("output_mode")),
                     "gemini_api_key": data.get("gemini_api_key", ""),
+                    "gemini_model": data.get("gemini_model", ""),
                     "openai_api_key": data.get("openai_api_key", ""),
-                    "ollama_host": data.get("ollama_host", ""),
-                    "ollama_model": data.get("ollama_model", ""),
+                    "whisper_prompt": data.get("whisper_prompt", ""),
+                    "whisper_local_host": data.get("whisper_local_host", ""),
                 })
                 config_mgr.save_config(conf)
                 logger.info(f"Settings saved via web UI. Engine: {conf['active_engine']}")
@@ -377,6 +389,6 @@ class SettingsServer:
                 t.start()
                 self._started = True
                 import time
-                time.sleep(0.6)  # Give Flask a moment to start
+                time.sleep(0.6)
         webbrowser.open(f"http://127.0.0.1:{self.port}")
         logger.info("Settings page opened in browser.")

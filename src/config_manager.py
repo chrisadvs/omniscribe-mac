@@ -12,9 +12,10 @@ class ConfigManager:
         return {
             "active_engine": "gemini",
             "gemini_api_key": "",
+            "gemini_model": "",
             "openai_api_key": "",
-            "ollama_host": "http://mac-mini.local:11434",
-            "ollama_model": "gemma4:e4b",
+            "whisper_prompt": "",
+            "whisper_local_host": "",
             "output_mode": "clipboard",
             "hotkey": "<cmd>+<shift>+u"
         }
@@ -33,9 +34,10 @@ class ConfigManager:
             if "api_key" in data and "gemini_api_key" not in data:
                 logger.info("Migrating old config format to new structure.")
                 data["gemini_api_key"] = data.pop("api_key")
+                data.setdefault("gemini_model", "")
                 data.setdefault("openai_api_key", "")
-                data.setdefault("ollama_host", "http://mac-mini.local:11434")
-                data.setdefault("ollama_model", "gemma4:e4b")
+                data.setdefault("whisper_prompt", "")
+                data.setdefault("whisper_local_host", "")
                 self.save_config(data)
             return data
         except (json.JSONDecodeError, FileNotFoundError, Exception) as e:
