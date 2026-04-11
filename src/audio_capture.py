@@ -17,6 +17,7 @@ class OmniRecorder:
 
     def _record_worker(self):
         self.callback_ui_update(True)
+        logger.info("[TIMER] Recording started.")
         try:
             with sf.SoundFile(self.filename, mode='w', samplerate=16000, channels=1) as f:
                 with sd.InputStream(samplerate=16000, channels=1,
@@ -39,6 +40,7 @@ class OmniRecorder:
         except Exception as e:
             logger.error(f"Recording error: {e}")
         finally:
+            logger.info("[TIMER] Recording stopped. Sending audio for transcription.")
             self.callback_ui_update(False)
             self.callback_process_audio(self.filename)
 

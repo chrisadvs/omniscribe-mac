@@ -86,10 +86,16 @@ class SpeechEngineFactory:
             logger.error("Whisper Local host is missing. Please set it in Settings.")
             return ""
         try:
+            logger.info("[TIMER] Sending audio to Whisper Local server...")
+            t_start = time.time()
+
             url = f"{self.whisper_local_host}/transcribe"
             with open(path, "rb") as f:
                 files = {"file": ("audio.wav", f, "audio/wav")}
                 response = requests.post(url, files=files, timeout=60)
+
+            t_upload_done = time.time()
+            logger.info(f"[TIMER] Server responded in {t_upload_done - t_start:.2f}s")
 
             if response.status_code == 200:
                 result = response.json().get("text", "").strip()
