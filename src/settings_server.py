@@ -247,7 +247,18 @@ SETTINGS_HTML = """
 
   <div class="divider"></div>
 
+  <!-- Hotkey -->
+  <div class="divider"></div>
+  <div class="section-label">Hotkey</div>
+  <label>Recording Shortcut</label>
+  <input type="text" id="hotkey" value="{{ config.hotkey }}" placeholder="Click here, then press your shortcut"
+         readonly style="cursor:pointer;"
+         onfocus="this.style.borderColor='#007AFF'; this.placeholder='Press your shortcut now...'"
+         onblur="this.style.borderColor=''; this.placeholder='Click here, then press your shortcut'">
+  <div class="field-hint">Click the field above, then press your desired key combination (e.g. Cmd+Shift+U)</div>
+
   <!-- Output Mode -->
+  <div class="divider"></div>
   <div class="section-label">Output Mode</div>
   <div class="output-grid">
     <div class="output-btn {% if config.output_mode == 'clipboard' %}active{% endif %}"
@@ -298,6 +309,64 @@ SETTINGS_HTML = """
     }
   }
 
+  // Known browser/system conflicting shortcuts (cmd+key)
+  const browserConflicts = new Set(['p','s','w','t','r','n','l','a','c','v','x','z','f','h','j','k','d','o','b','u','i','g','m','e','q']);
+  // Known Cmd+Shift conflicts
+  const cmdShiftConflicts = new Set(['i','j','c','p','n','t','w','r','d','s','b','f','l','z','a','q','e','g','h','k','m','o','u','v','x']);
+
+  // Hotkey capture
+  const hotkeyInput = document.getElementById('hotkey');
+  const hotkeyHint = hotkeyInput.nextElementSibling;
+
+  hotkeyInput.addEventListener('keydown', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Ignore standalone modifier key presses
+    if (['Meta', 'Shift', 'Control', 'Alt'].includes(e.key)) return;
+
+    const parts = [];
+    if (e.metaKey)  parts.push('<cmd>');
+    if (e.ctrlKey)  parts.push('<ctrl>');
+    if (e.altKey)   parts.push('<alt>');
+    if (e.shiftKey) parts.push('<shift>');
+
+    // Must have at least one modifier
+    if (parts.length === 0) return;
+
+    // Convert key to pynput format
+    let key = e.key.toLowerCase();
+    const specialKeys = {
+      ' ': 'space', 'arrowup': '<up>', 'arrowdown': '<down>',
+      'arrowleft': '<left>', 'arrowright': '<right>',
+      'escape': '<esc>', 'tab': '<tab>', 'backspace': '<backspace>',
+      'delete': '<delete>', 'enter': '<enter>',
+      'f1':'<f1>','f2':'<f2>','f3':'<f3>','f4':'<f4>',
+      'f5':'<f5>','f6':'<f6>','f7':'<f7>','f8':'<f8>',
+      'f9':'<f9>','f10':'<f10>','f11':'<f11>','f12':'<f12>',
+    };
+    if (specialKeys[key]) {
+      key = specialKeys[key];
+    }
+
+    parts.push(key);
+    hotkeyInput.value = parts.join('+');
+
+    // Warn if this shortcut conflicts with common browser/system shortcuts
+    const isOnlyCmd = e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey;
+    const isCmdShift = e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey;
+    if (isOnlyCmd && browserConflicts.has(e.key.toLowerCase())) {
+      hotkeyHint.textContent = '⚠️ Warning: Cmd+' + e.key.toUpperCase() + ' may conflict with a system or browser shortcut. Consider adding Shift or using a different key.';
+      hotkeyHint.style.color = '#FF9500';
+    } else if (isCmdShift && cmdShiftConflicts.has(e.key.toLowerCase())) {
+      hotkeyHint.textContent = '⚠️ Warning: Cmd+Shift+' + e.key.toUpperCase() + ' may conflict with a system or browser shortcut. Consider using a different key.';
+      hotkeyHint.style.color = '#FF9500';
+    } else {
+      hotkeyHint.textContent = 'Click the field above, then press your desired key combination (e.g. Cmd+Shift+U)';
+      hotkeyHint.style.color = '#6e6e73';
+    }
+  });
+
   function saveSettings() {
     const payload = {
       active_engine: currentEngine,
@@ -307,6 +376,7 @@ SETTINGS_HTML = """
       openai_api_key: document.getElementById('openai_api_key').value,
       whisper_prompt: document.getElementById('whisper_prompt').value,
       whisper_local_host: document.getElementById('whisper_local_host').value,
+      hotkey: document.getElementById('hotkey').value,
     };
 
     fetch('/save', {
@@ -355,6 +425,7 @@ class SettingsServer:
             conf.setdefault("openai_api_key", "")
             conf.setdefault("whisper_prompt", "")
             conf.setdefault("whisper_local_host", "")
+            conf.setdefault("hotkey", "<cmd>+<shift>+u")
             conf.setdefault("output_mode", "clipboard")
             conf.setdefault("active_engine", "gemini")
             return render_template_string(SETTINGS_HTML, config=conf)
@@ -372,6 +443,7 @@ class SettingsServer:
                     "openai_api_key": data.get("openai_api_key", ""),
                     "whisper_prompt": data.get("whisper_prompt", ""),
                     "whisper_local_host": data.get("whisper_local_host", ""),
+                    "hotkey": data.get("hotkey", conf.get("hotkey", "<cmd>+<shift>+u")),
                 })
                 config_mgr.save_config(conf)
                 logger.info(f"Settings saved via web UI. Engine: {conf['active_engine']}")
