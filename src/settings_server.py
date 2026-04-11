@@ -332,9 +332,11 @@ SETTINGS_HTML = """
 </html>
 """
 
+
 class SettingsServer:
-    def __init__(self, config_mgr):
+    def __init__(self, config_mgr, on_save=None):
         self.config_mgr = config_mgr
+        self.on_save = on_save  # Callback to notify gui_app when settings are saved
         self.app = Flask(__name__)
         self.port = 47891
         self._started = False
@@ -343,6 +345,7 @@ class SettingsServer:
 
     def _register_routes(self):
         config_mgr = self.config_mgr
+        on_save = self.on_save
 
         @self.app.route("/")
         def index():
@@ -372,6 +375,11 @@ class SettingsServer:
                 })
                 config_mgr.save_config(conf)
                 logger.info(f"Settings saved via web UI. Engine: {conf['active_engine']}")
+
+                # Notify gui_app so it can reload hotkey and refresh menu
+                if on_save:
+                    threading.Thread(target=on_save, args=(conf,), daemon=True).start()
+
                 return jsonify({"ok": True})
             except Exception as e:
                 logger.error(f"Settings save error: {e}")
