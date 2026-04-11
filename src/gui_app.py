@@ -1,6 +1,8 @@
 import rumps
 import threading
 import os
+import json
+from datetime import datetime
 from src.config_manager import ConfigManager
 from src.audio_capture import OmniRecorder
 from src.speech_engine import SpeechEngineFactory
@@ -17,6 +19,34 @@ ENGINE_LABELS = {
     "whisper": "Whisper API",
     "whisper_local": "Whisper Local",
 }
+
+# History file location
+HISTORY_PATH = os.path.expanduser("~/Library/Application Support/OmniScribe/history.json")
+MAX_HISTORY = 200
+
+
+def save_history_entry(text: str, engine: str):
+    """Append a transcription result to the history file."""
+    try:
+        if os.path.exists(HISTORY_PATH):
+            with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
+                history = json.load(f)
+        else:
+            history = []
+
+        history.insert(0, {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "engine": engine,
+            "text": text
+        })
+
+        # Keep only the most recent entries
+        history = history[:MAX_HISTORY]
+
+        with open(HISTORY_PATH, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save history: {e}")
 
 
 class OmniScribeApp(rumps.App):
@@ -46,6 +76,7 @@ class OmniScribeApp(rumps.App):
             self._engine_item,
             rumps.separator,
             rumps.MenuItem("Settings", callback=self.open_settings),
+            rumps.MenuItem("View History", callback=self.view_history),
             rumps.MenuItem("View Logs", callback=self.view_logs),
             rumps.separator,
             rumps.MenuItem("Quit OmniScribe", callback=rumps.quit_application)
@@ -81,6 +112,8 @@ class OmniScribeApp(rumps.App):
         if text:
             injector = TextInjector(current_config)
             injector.output(text)
+            # Save to history
+            save_history_entry(text, current_config.get("active_engine", "unknown"))
             self._app_status = "Ready"
         else:
             self._app_status = "Error"
@@ -116,6 +149,9 @@ class OmniScribeApp(rumps.App):
 
     def open_settings(self, _):
         threading.Thread(target=self.settings_server.open, daemon=True).start()
+
+    def view_history(self, _):
+        threading.Thread(target=self.settings_server.open_history, daemon=True).start()
 
     def view_logs(self, _):
         log_path = os.path.expanduser("~/Library/Application Support/OmniScribe/omniscribe.log")

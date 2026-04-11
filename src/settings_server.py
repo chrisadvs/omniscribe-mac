@@ -1,7 +1,185 @@
 import threading
 import webbrowser
+import json
+import os
 from flask import Flask, request, jsonify, render_template_string
 from src.utils.logger import logger
+
+HISTORY_PATH = os.path.expanduser("~/Library/Application Support/OmniScribe/history.json")
+
+HISTORY_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniScribe History</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    background: #f5f5f7;
+    padding: 40px 16px;
+  }
+  .card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+    width: 100%;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 36px 40px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1d1d1f;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h1 span.dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #34C759;
+    display: inline-block;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #6e6e73;
+    margin-bottom: 24px;
+  }
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-export { background: #007AFF; color: white; }
+  .btn-export:hover { background: #005ecb; }
+  .btn-clear { background: #f0f0f5; color: #3a3a3c; }
+  .btn-clear:hover { background: #e0e0e5; }
+  .btn-danger { background: #FF3B30; color: white; }
+  .btn-danger:hover { background: #cc2f26; }
+  .entry {
+    border-bottom: 1px solid #f0f0f5;
+    padding: 14px 0;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .entry:last-child { border-bottom: none; }
+  .entry-meta {
+    min-width: 140px;
+    flex-shrink: 0;
+  }
+  .entry-time {
+    font-size: 12px;
+    color: #6e6e73;
+    margin-bottom: 4px;
+  }
+  .entry-engine {
+    font-size: 11px;
+    color: #007AFF;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .entry-text {
+    font-size: 14px;
+    color: #1d1d1f;
+    line-height: 1.5;
+    flex: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background 0.1s;
+  }
+  .entry-text:hover { background: #f0f7ff; }
+  .entry-text.copied { background: #EDFAF1; color: #1a7a3a; }
+  .empty {
+    text-align: center;
+    color: #6e6e73;
+    padding: 60px 0;
+    font-size: 15px;
+  }
+  .copy-hint {
+    font-size: 12px;
+    color: #6e6e73;
+    margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1><span class="dot"></span> Transcription History</h1>
+  <div class="subtitle">{{ count }} entries — click any entry to copy it to clipboard</div>
+  <div class="toolbar">
+    <button class="btn btn-export" onclick="exportHistory()">⬇ Export JSON</button>
+    <button class="btn btn-clear btn-danger" onclick="clearHistory()">🗑 Clear All</button>
+  </div>
+  {% if entries %}
+  <div id="entries">
+    {% for entry in entries %}
+    <div class="entry">
+      <div class="entry-meta">
+        <div class="entry-time">{{ entry.timestamp }}</div>
+        <div class="entry-engine">{{ entry.engine }}</div>
+      </div>
+      <div class="entry-text" onclick="copyEntry(this, '{{ entry.text | replace("'", "\\'") }}')">{{ entry.text }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">No transcription history yet.<br>Start recording to see entries here.</div>
+  {% endif %}
+</div>
+<script>
+  function copyEntry(el, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      el.classList.add('copied');
+      const original = el.textContent;
+      el.textContent = '✓ Copied!';
+      setTimeout(() => {
+        el.textContent = original;
+        el.classList.remove('copied');
+      }, 1500);
+    });
+  }
+
+  function exportHistory() {
+    fetch('/history/export')
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'omniscribe_history.json';
+        a.click();
+      });
+  }
+
+  function clearHistory() {
+    if (!confirm('Clear all history? This cannot be undone.')) return;
+    fetch('/history/clear', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) location.reload();
+      });
+  }
+</script>
+</body>
+</html>
+"""
 
 SETTINGS_HTML = """
 <!DOCTYPE html>
@@ -457,6 +635,41 @@ class SettingsServer:
                 logger.error(f"Settings save error: {e}")
                 return jsonify({"ok": False, "error": str(e)})
 
+        @self.app.route("/history")
+        def history():
+            try:
+                if os.path.exists(HISTORY_PATH):
+                    with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
+                        entries = json.load(f)
+                else:
+                    entries = []
+            except Exception:
+                entries = []
+            return render_template_string(HISTORY_HTML, entries=entries, count=len(entries))
+
+        @self.app.route("/history/export")
+        def history_export():
+            from flask import Response
+            try:
+                if os.path.exists(HISTORY_PATH):
+                    with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
+                        data = f.read()
+                else:
+                    data = "[]"
+            except Exception:
+                data = "[]"
+            return Response(data, mimetype='application/json',
+                            headers={"Content-Disposition": "attachment; filename=omniscribe_history.json"})
+
+        @self.app.route("/history/clear", methods=["POST"])
+        def history_clear():
+            try:
+                with open(HISTORY_PATH, 'w', encoding='utf-8') as f:
+                    json.dump([], f)
+                return jsonify({"ok": True})
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)})
+
     def _run_server(self):
         import logging as pylogging
         pylogging.getLogger("werkzeug").setLevel(pylogging.ERROR)
@@ -472,3 +685,14 @@ class SettingsServer:
                 time.sleep(0.6)
         webbrowser.open(f"http://127.0.0.1:{self.port}")
         logger.info("Settings page opened in browser.")
+
+    def open_history(self):
+        with self._lock:
+            if not self._started:
+                t = threading.Thread(target=self._run_server, daemon=True)
+                t.start()
+                self._started = True
+                import time
+                time.sleep(0.6)
+        webbrowser.open(f"http://127.0.0.1:{self.port}/history")
+        logger.info("History page opened in browser.")
